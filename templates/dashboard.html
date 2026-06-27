@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — FMCG ReconPro{% endblock %}
+{% block page_title %}Reconciliation Dashboard{% endblock %}
+
+{% block content %}
+
+<!-- Top KPIs across all engines -->
+<div class="kpi-grid kpi-grid-5" style="margin-bottom:24px">
+    <div class="kpi-card kpi-blue">
+        <span class="kpi-icon">📊</span>
+        <div class="kpi-label">Revenue Match Rate</div>
+        <div class="kpi-value">{{ e1.summary.match_rate }}%</div>
+        <div class="kpi-sub">{{ e1.summary.matched }} / {{ e1.summary.total_periods }} periods</div>
+    </div>
+    <div class="kpi-card kpi-green">
+        <span class="kpi-icon">🏦</span>
+        <div class="kpi-label">Bank Match Rate</div>
+        <div class="kpi-value">{{ e2.summary.match_rate }}%</div>
+        <div class="kpi-sub">{{ e2.summary.matched }} / {{ e2.summary.total_sales_days }} days</div>
+    </div>
+    <div class="kpi-card kpi-amber">
+        <span class="kpi-icon">🎯</span>
+        <div class="kpi-label">Budget Attainment</div>
+        <div class="kpi-value">{{ e3.summary.overall_attainment_pct }}%</div>
+        <div class="kpi-sub">${{ "{:,.0f}".format(e3.summary.total_variance_usd) }} variance</div>
+    </div>
+    <div class="kpi-card kpi-purple">
+        <span class="kpi-icon">⚠</span>
+        <div class="kpi-label">Cost Anomalies</div>
+        <div class="kpi-value">{{ e4.summary.flagged }}</div>
+        <div class="kpi-sub">{{ e4.summary.margin_alerts }} margin alerts</div>
+    </div>
+    <div class="kpi-card kpi-red">
+        <span class="kpi-icon">💰</span>
+        <div class="kpi-label">Missing from Bank</div>
+        <div class="kpi-value">${{ "{:,.0f}".format(e2.summary.missing_from_bank_usd) }}</div>
+        <div class="kpi-sub">{{ e2.summary.unmatched_sales }} unmatched days</div>
+    </div>
+</div>
+
+<!-- Engine cards — quick summary + risk -->
+<div class="section-title">Engine Results</div>
+<div class="engine-grid">
+
+    <a href="{{ url_for('engine_detail', num=1) }}" class="engine-card">
+        <div class="engine-card-header">
+            <div class="engine-num" style="background:#3b82f6">1</div>
+            <div style="flex:1">
+                <div class="engine-card-title">Revenue Reconciliation</div>
+                <div class="engine-card-sub">Sales Sub-Ledger vs General Ledger</div>
+            </div>
+            <span class="badge badge-{% if e1.summary.risk_level=='LOW' %}green{% elif e1.summary.risk_level=='MEDIUM' %}amber{% else %}red{% endif %}">
+                {{ e1.summary.risk_level }} RISK
+            </span>
+        </div>
+        <div class="engine-stats">
+            <div class="engine-stat">
+                <div class="engine-stat-label">Match Rate</div>
+                <div class="engine-stat-value" style="color:#3b82f6">{{ e1.summary.match_rate }}%</div>
+            </div>
+            <div class="engine-stat">
+                <div class="engine-stat-label">Mismatches</div>
+                <div class="engine-stat-value" style="color:#ef4444">{{ e1.summary.mismatches }}</div>
+            </div>
+            <div class="engine-stat">
+                <div class="engine-stat-label">Variance $</div>
+                <div class="engine-stat-value" style="font-size:14px">${{ "{:,.0f}".format(e1.summary.total_variance_usd) }}</div>
+            </div>
+        </div>
+        <div class="progress-wrap" style="margin-top:12px">
+            <div class="progress-bar" style="width:{{ e1.summary.match_rate }}%;background:#3b82f6"></div>
+        </div>
+    </a>
+
+    <a href="{{ url_for('engine_detail', num=2) }}" class="engine-card">
+        <div class="engine-card-header">
+            <div class="engine-num" style="background:#10b981">2</div>
+            <div style="flex:1">
+                <div class="engine-card-title">Bank Reconciliation</div>
+                <div class="engine-card-sub">Daily Sales vs Bank Settlements</div>
+            </div>
+            <span class="badge badge-{% if e2.summary.risk_level=='LOW' %}green{% elif e2.summary.risk_level=='MEDIUM' %}amber{% else %}red{% endif %}">
+                {{ e2.summary.risk_level }} RISK
+            </span>
+        </div>
+        <div class="engine-stats">
+            <div class="engine-stat">
+                <div class="engine-stat-label">Match Rate</div>
+                <div class="engine-stat-value" style="color:#10b981">{{ e2.summary.match_rate }}%</div>
+            </div>
+            <div class="engine-stat">
+                <div class="engine-stat-label">Unmatched</div>
+                <div class="engine-stat-value" style="color:#ef4444">{{ e2.summary.unmatched_sales }}</div>
+            </div>
+            <div class="engine-stat">
+                <div class="engine-stat-label">Exposure $</div>
+                <div class="engine-stat-value" style="font-size:14px">${{ "{:,.0f}".format(e2.summary.missing_from_bank_usd) }}</div>
+            </div>
+        </div>
+        <div class="progress-wrap" style="margin-top:12px">
+            <div class="progress-bar" style="width:{{ e2.summary.match_rate }}%;background:#10b981"></div>
+        </div>
+    </a>
+
+    <a href="{{ url_for('engine_detail', num=3) }}" class="engine-card">
+        <div class="engine-card-header">
+            <div class="engine-num" style="background:#f59e0b">3</div>
+            <div style="flex:1">
+                <div class="engine-card-title">Budget vs Actual</div>
+                <div class="engine-card-sub">Regional Performance vs Targets</div>
+            </div>
+            <span class="badge badge-{% if e3.summary.risk_level=='LOW' %}green{% elif e3.summary.risk_level=='MEDIUM' %}amber{% else %}red{% endif %}">
+                {{ e3.summary.risk_level }} RISK
+            </span>
+        </div>
+        <div class="engine-stats">
+            <div class="engine-stat">
+                <div class="engine-stat-label">Attainment</div>
+                <div class="engine-stat-value" style="color:#f59e0b">{{ e3.summary.overall_attainment_pct }}%</div>
+            </div>
+            <div class="engine-stat">
+                <div class="engine-stat-label">On Target</div>
+                <div class="engine-stat-value" style="color:#10b981">{{ e3.summary.on_target }}</div>
+            </div>
+            <div class="engine-stat">
+                <div class="engine-stat-label">Critical</div>
+                <div class="engine-stat-value" style="color:#ef4444">{{ e3.summary.critical_misses }}</div>
+            </div>
+        </div>
+        <div class="progress-wrap" style="margin-top:12px">
+            <div class="progress-bar" style="width:{{ [e3.summary.overall_attainment_pct, 100]|min }}%;background:#f59e0b"></div>
+        </div>
+    </a>
+
+    <a href="{{ url_for('engine_detail', num=4) }}" class="engine-card">
+        <div class="engine-card-header">
+            <div class="engine-num" style="background:#8b5cf6">4</div>
+            <div style="flex:1">
+                <div class="engine-card-title">Cost Reconciliation</div>
+                <div class="engine-card-sub">COGS · Logistics · Marketing</div>
+            </div>
+            <span class="badge badge-{% if e4.summary.risk_level=='LOW' %}green{% elif e4.summary.risk_level=='MEDIUM' %}amber{% else %}red{% endif %}">
+                {{ e4.summary.risk_level }} RISK
+            </span>
+        </div>
+        <div class="engine-stats">
+            <div class="engine-stat">
+                <div class="engine-stat-label">Flagged</div>
+                <div class="engine-stat-value" style="color:#8b5cf6">{{ e4.summary.flagged }}</div>
+            </div>
+            <div class="engine-stat">
+                <div class="engine-stat-label">COGS Var $</div>
+                <div class="engine-stat-value" style="font-size:14px">${{ "{:,.0f}".format(e4.summary.total_cogs_variance_usd) }}</div>
+            </div>
+            <div class="engine-stat">
+                <div class="engine-stat-label">Margin Alerts</div>
+                <div class="engine-stat-value" style="color:#ef4444">{{ e4.summary.margin_alerts }}</div>
+            </div>
+        </div>
+        <div class="progress-wrap" style="margin-top:12px">
+            <div class="progress-bar" style="width:{{ e4.summary.match_rate }}%;background:#8b5cf6"></div>
+        </div>
+    </a>
+
+</div>
+
+<!-- Charts row -->
+<div class="section-title">Financial Overview</div>
+<div class="chart-row">
+    <div class="chart-card">
+        <h3>Revenue — Sales vs GL (Monthly)</h3>
+        <canvas id="revenueChart"></canvas>
+    </div>
+    <div class="chart-card">
+        <h3>Budget Attainment by Region</h3>
+        <canvas id="budgetChart"></canvas>
+    </div>
+</div>
+<div class="chart-row">
+    <div class="chart-card">
+        <h3>Bank Cashflow — Expected vs Actual</h3>
+        <canvas id="cashflowChart"></canvas>
+    </div>
+    <div class="chart-card">
+        <h3>Profit Margin Trend</h3>
+        <canvas id="marginChart"></canvas>
+    </div>
+</div>
+
+<script>
+const chartDefaults = {
+    responsive: true,
+    plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } },
+    scales: { y: { beginAtZero: false, ticks: { font: { size: 11 } } }, x: { ticks: { font: { size: 10 }, maxRotation: 45 } } }
+};
+
+// Revenue chart
+const rm = {{ e1.chart_monthly | tojson }};
+new Chart(document.getElementById('revenueChart'), {
+    type: 'line',
+    data: {
+        labels: rm.labels,
+        datasets: [
+            { label: 'Sales Sub-Ledger', data: rm.sl_values, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.08)', tension: 0.3, fill: true },
+            { label: 'General Ledger',  data: rm.gl_values, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)', tension: 0.3, fill: true }
+        ]
+    },
+    options: { ...chartDefaults }
+});
+
+// Budget chart
+const bc = {{ e3.chart_region | tojson }};
+new Chart(document.getElementById('budgetChart'), {
+    type: 'bar',
+    data: {
+        labels: bc.labels,
+        datasets: [
+            { label: 'Budget',  data: bc.budget, backgroundColor: 'rgba(245,158,11,0.3)', borderColor: '#f59e0b', borderWidth: 2 },
+            { label: 'Actual',  data: bc.actual, backgroundColor: 'rgba(16,185,129,0.6)', borderColor: '#10b981', borderWidth: 2 }
+        ]
+    },
+    options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { beginAtZero: true } } }
+});
+
+// Cashflow chart
+const cf = {{ e2.chart_monthly | tojson }};
+new Chart(document.getElementById('cashflowChart'), {
+    type: 'line',
+    data: {
+        labels: cf.labels,
+        datasets: [
+            { label: 'Expected',data: cf.expected, borderColor: '#6366f1', tension: 0.3, borderDash: [5,3] },
+            { label: 'Actual',  data: cf.actual,   borderColor: '#10b981', tension: 0.3 }
+        ]
+    },
+    options: { ...chartDefaults }
+});
+
+// Margin trend
+const mt = {{ e4.chart_margin | tojson }};
+new Chart(document.getElementById('marginChart'), {
+    type: 'line',
+    data: {
+        labels: mt.labels,
+        datasets: [{ label: 'Avg Profit Margin %', data: mt.avg_margin, borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,0.08)', tension: 0.3, fill: true }]
+    },
+    options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { min: 10, max: 40 } } }
+});
+</script>
+{% endblock %}

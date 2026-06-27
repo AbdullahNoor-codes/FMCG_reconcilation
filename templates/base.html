@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}FMCG ReconPro{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════
+     FULL-SCREEN LOADING OVERLAY
+     Shown when "Run All Engines" is clicked.
+     Hidden once the server responds.
+════════════════════════════════════════════════ -->
+<div id="recon-overlay" style="display:none">
+    <div class="overlay-box">
+        <!-- Animated ring spinner -->
+        <div class="ring-spinner">
+            <div></div><div></div><div></div><div></div>
+        </div>
+
+        <div class="overlay-title">Running Reconciliation…</div>
+        <div class="overlay-subtitle">Processing 18,240 orders across all 4 engines</div>
+
+        <!-- Step-by-step status messages that cycle automatically -->
+        <div class="overlay-steps">
+            <div class="step-item" id="step-1">
+                <span class="step-dot pending"></span>
+                <span>Loading data files…</span>
+            </div>
+            <div class="step-item" id="step-2">
+                <span class="step-dot pending"></span>
+                <span>Engine 1 — Revenue vs General Ledger</span>
+            </div>
+            <div class="step-item" id="step-3">
+                <span class="step-dot pending"></span>
+                <span>Engine 2 — Bank vs Daily Sales</span>
+            </div>
+            <div class="step-item" id="step-4">
+                <span class="step-dot pending"></span>
+                <span>Engine 3 — Budget vs Actual (Regional)</span>
+            </div>
+            <div class="step-item" id="step-5">
+                <span class="step-dot pending"></span>
+                <span>Engine 4 — Cost Anomaly Detection</span>
+            </div>
+            <div class="step-item" id="step-6">
+                <span class="step-dot pending"></span>
+                <span>Saving results to history…</span>
+            </div>
+        </div>
+
+        <div class="overlay-note">This usually takes 20–40 seconds. Please don't close the tab.</div>
+
+        <!-- Live elapsed timer -->
+        <div class="overlay-timer">Elapsed: <span id="elapsed-time">0s</span></div>
+    </div>
+</div>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <div class="brand-icon">⚖</div>
+        <h1>ReconPro</h1>
+        <p>FMCG Auto-Reconciliation</p>
+    </div>
+
+    <nav class="sidebar-nav">
+        <div class="nav-section-label">Main</div>
+        <a href="{{ url_for('index') }}" class="nav-link {% if request.endpoint=='index' %}active{% endif %}">
+            <span class="icon">🏠</span> Home
+        </a>
+        <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint=='dashboard' %}active{% endif %}">
+            <span class="icon">📊</span> Dashboard
+        </a>
+
+        <div class="nav-section-label" style="margin-top:16px">Engines</div>
+        <a href="{{ url_for('engine_detail', num=1) }}" class="nav-engine {% if request.endpoint=='engine_detail' and request.view_args.num==1 %}active{% endif %}">
+            <span class="eng-badge" style="background:#3b82f6">1</span> Revenue vs GL
+        </a>
+        <a href="{{ url_for('engine_detail', num=2) }}" class="nav-engine {% if request.endpoint=='engine_detail' and request.view_args.num==2 %}active{% endif %}">
+            <span class="eng-badge" style="background:#10b981">2</span> Bank vs Sales
+        </a>
+        <a href="{{ url_for('engine_detail', num=3) }}" class="nav-engine {% if request.endpoint=='engine_detail' and request.view_args.num==3 %}active{% endif %}">
+            <span class="eng-badge" style="background:#f59e0b">3</span> Budget vs Actual
+        </a>
+        <a href="{{ url_for('engine_detail', num=4) }}" class="nav-engine {% if request.endpoint=='engine_detail' and request.view_args.num==4 %}active{% endif %}">
+            <span class="eng-badge" style="background:#8b5cf6">4</span> Cost Anomalies
+        </a>
+
+        <div class="nav-section-label" style="margin-top:16px">Reports</div>
+        <a href="{{ url_for('history') }}" class="nav-link {% if request.endpoint=='history' %}active{% endif %}">
+            <span class="icon">🕒</span> History
+        </a>
+        <a href="{{ url_for('download') }}" class="nav-link">
+            <span class="icon">⬇</span> Export Excel
+        </a>
+    </nav>
+
+    <!-- Shows which run is currently loaded -->
+    <div class="sidebar-footer">
+        FMCG Dataset · 2023–2025
+        {% if active_run_id %}
+        <div style="margin-top:6px;padding:5px 8px;background:rgba(59,130,246,0.15);border-radius:6px;font-size:11px;color:#93c5fd">
+            Viewing Run #{{ active_run_id }}
+        </div>
+        {% endif %}
+    </div>
+</aside>
+
+<!-- ── Main ── -->
+<div class="main">
+    <header class="topbar">
+        <span class="topbar-title">{% block page_title %}FMCG Auto-Reconciliation System{% endblock %}</span>
+        <div class="topbar-right">
+            <!-- This form triggers the loading overlay before submitting -->
+            <form id="run-form" action="{{ url_for('run_reconciliation') }}" method="post" style="margin:0">
+                <button type="submit" id="run-btn" class="btn btn-success btn-sm">▶ Run All Engines</button>
+            </form>
+            <a href="{{ url_for('download') }}" class="btn btn-outline btn-sm">⬇ Export</a>
+        </div>
+    </header>
+
+    <div class="content">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            {% for m in messages %}
+              <div class="alert">{{ m }}</div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     LOADING OVERLAY JAVASCRIPT
+════════════════════════════════════════════════ -->
+<script>
+(function () {
+    const form    = document.getElementById('run-form');
+    const overlay = document.getElementById('recon-overlay');
+    const elapsed = document.getElementById('elapsed-time');
+
+    if (!form) return;
+
+    // Step timing: approximate seconds each engine starts (cosmetic only)
+    const STEP_DELAYS = [0, 1.5, 6, 12, 19, 27];
+    const STEPS = ['step-1','step-2','step-3','step-4','step-5','step-6'];
+
+    form.addEventListener('submit', function () {
+        // Show overlay immediately
+        overlay.style.display = 'flex';
+        document.body.style.overflow = 'hidden'; // prevent scrolling behind overlay
+
+        // Start elapsed timer
+        let secs = 0;
+        const timer = setInterval(() => {
+            secs++;
+            elapsed.textContent = secs + 's';
+        }, 1000);
+
+        // Advance step indicators at realistic-looking intervals
+        STEP_DELAYS.forEach((delay, i) => {
+            setTimeout(() => {
+                // Mark previous step done
+                if (i > 0) {
+                    const prev = document.getElementById(STEPS[i - 1]);
+                    if (prev) prev.querySelector('.step-dot').className = 'step-dot done';
+                }
+                // Mark current step active
+                const cur = document.getElementById(STEPS[i]);
+                if (cur) cur.querySelector('.step-dot').className = 'step-dot active';
+            }, delay * 1000);
+        });
+
+        // Don't block the form submission — browser will navigate away when done
+    });
+})();
+</script>
+
+</body>
+</html>

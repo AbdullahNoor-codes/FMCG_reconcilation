@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Run History — FMCG ReconPro{% endblock %}
+{% block page_title %}Reconciliation History{% endblock %}
+
+{% block content %}
+
+<!-- Explain how history works — helps non-finance users understand -->
+<div class="card" style="background:#f0f9ff;border-color:#bae6fd;margin-bottom:20px">
+    <div style="display:flex;gap:16px;align-items:flex-start">
+        <div style="font-size:28px">💡</div>
+        <div>
+            <div style="font-weight:700;margin-bottom:4px;color:#0369a1">How run history works</div>
+            <div style="font-size:13px;color:#0c4a6e;line-height:1.7">
+                Every time you click <strong>Run All Engines</strong>, a snapshot of all results is saved here.
+                Runs with <span class="badge badge-green">Full Data</span> can be reloaded — clicking 
+                <strong>Load This Run</strong> makes all engine pages (Dashboard, Engine 1–4) show that 
+                run's data instead of the latest one. This lets you compare results across different dates 
+                or undo the effect of a new run.
+                Runs marked <span class="badge badge-amber">Summary Only</span> were made before this 
+                feature was added — only their totals are saved.
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if active_run_id %}
+<div class="alert alert-info" style="margin-bottom:16px">
+    Currently viewing <strong>Run #{{ active_run_id }}</strong> across all pages.
+    <a href="{{ url_for('run_reconciliation') }}" style="margin-left:8px">Run new reconciliation →</a>
+</div>
+{% endif %}
+
+{% if runs %}
+
+<div class="chart-row">
+    <div class="chart-card">
+        <h3>Revenue Match Rate — Across All Runs</h3>
+        <canvas id="e1Trend"></canvas>
+    </div>
+    <div class="chart-card">
+        <h3>Budget Attainment — Across All Runs</h3>
+        <canvas id="e3Trend"></canvas>
+    </div>
+</div>
+
+<div class="section-title">All Runs</div>
+<div class="card">
+    <div class="table-wrap">
+        <table class="recon-table">
+            <thead>
+                <tr>
+                    <th>Run #</th>
+                    <th>Date & Time</th>
+                    <th>E1 Revenue %</th>
+                    <th>E1 Variance $</th>
+                    <th>E2 Bank %</th>
+                    <th>E2 Missing $</th>
+                    <th>E3 Attainment %</th>
+                    <th>E4 Flagged</th>
+                    <th>Overall Risk</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in runs %}
+                <tr {% if active_run_id and r.id == active_run_id %}style="background:#eff6ff"{% endif %}>
+                    <td>
+                        <strong>#{{ r.id }}</strong>
+                        {% if active_run_id and r.id == active_run_id %}
+                        <span class="run-tag">ACTIVE</span>
+                        {% endif %}
+                    </td>
+                    <td style="white-space:nowrap">{{ r.run_date }}</td>
+
+                    <!-- E1 -->
+                    <td>
+                        <span class="{% if r.e1_match_rate >= 90 %}status-matched{% elif r.e1_match_rate >= 70 %}status-warning{% else %}status-mismatch{% endif %}">
+                            {{ r.e1_match_rate }}%
+                        </span>
+                    </td>
+                    <td class="{% if r.e1_variance and r.e1_variance > 50000 %}neg{% endif %}">
+                        ${{ "{:,.0f}".format(r.e1_variance or 0) }}
+                    </td>
+
+                    <!-- E2 -->
+                    <td>
+                        <span class="{% if r.e2_match_rate >= 80 %}status-matched{% else %}status-warning{% endif %}">
+                            {{ r.e2_match_rate }}%
+                        </span>
+                    </td>
+                    <td class="{% if r.e2_missing_usd and r.e2_missing_usd > 100000 %}neg{% endif %}">
+                        ${{ "{:,.0f}".format(r.e2_missing_usd or 0) }}
+                    </td>
+
+                    <!-- E3 -->
+                    <td>
+                        <span class="{% if r.e3_attainment >= 95 %}status-matched{% elif r.e3_attainment >= 80 %}status-warning{% else %}status-mismatch{% endif %}">
+                            {{ r.e3_attainment }}%
+                        </span>
+                    </td>
+
+                    <!-- E4 -->
+                    <td class="{% if r.e4_flagged and r.e4_flagged > 10 %}neg{% elif r.e4_flagged and r.e4_flagged > 5 %}status-warning{% endif %}">
+                        {{ r.e4_flagged or 0 }}
+                    </td>
+
+                    <!-- Risk -->
+                    <td>
+                        {% set risks = [r.e1_risk, r.e2_risk, r.e3_risk, r.e4_risk] %}
+                        {% if 'HIGH' in risks %}
+                            <span class="badge badge-red">HIGH</span>
+                        {% elif 'MEDIUM' in risks %}
+                            <span class="badge badge-amber">MEDIUM</span>
+                        {% else %}
+                            <span class="badge badge-green">LOW</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Actions -->
+                    <td>
+                        {% if r.has_full_data %}
+                            {% if active_run_id and r.id == active_run_id %}
+                                <span class="badge badge-blue">Loaded</span>
+                            {% else %}
+                                <a href="{{ url_for('load_historical_run', run_id=r.id) }}"
+                                   class="btn btn-replay btn-sm"
+                                   title="Load this run's full data into all engine pages">
+                                    ⏮ Load This Run
+                                </a>
+                            {% endif %}
+                        {% else %}
+                            <span class="badge badge-amber" title="Full data not saved for this run">Summary Only</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+const runs  = {{ runs | tojson }};
+const rev   = [...runs].reverse();
+const labs  = rev.map(r => 'Run #' + r.id);
+const opts  = { responsive:true, plugins:{legend:{position:'bottom'}},
+                scales:{y:{min:0,max:120,ticks:{callback:v=>v+'%'}},
+                        x:{ticks:{font:{size:10},maxRotation:30}}} };
+
+new Chart(document.getElementById('e1Trend'),{
+    type:'line',
+    data:{ labels:labs, datasets:[{
+        label:'Revenue Match %', data:rev.map(r=>r.e1_match_rate),
+        borderColor:'#3b82f6', backgroundColor:'rgba(59,130,246,0.08)',
+        tension:0.3, fill:true, pointRadius:4
+    }]},
+    options:opts
+});
+
+new Chart(document.getElementById('e3Trend'),{
+    type:'line',
+    data:{ labels:labs, datasets:[{
+        label:'Budget Attainment %', data:rev.map(r=>r.e3_attainment),
+        borderColor:'#f59e0b', backgroundColor:'rgba(245,158,11,0.08)',
+        tension:0.3, fill:true, pointRadius:4
+    }]},
+    options:opts
+});
+</script>
+
+{% else %}
+<div class="card" style="text-align:center;padding:48px">
+    <div style="font-size:40px;margin-bottom:16px">📋</div>
+    <h3 style="margin-bottom:8px">No runs yet</h3>
+    <p style="color:var(--muted);margin-bottom:20px">
+        Run your first reconciliation to see history and trends here.
+    </p>
+    <form action="{{ url_for('run_reconciliation') }}" method="post">
+        <button class="btn btn-success">▶ Run Now</button>
+    </form>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Engine 1 — Revenue Reconciliation{% endblock %}
+{% block page_title %}Engine 1 — Revenue vs General Ledger{% endblock %}
+
+{% block content %}
+<!-- Static KPIs (full run totals, never change with filters) -->
+<div class="kpi-grid" style="margin-bottom:20px">
+  <div class="kpi-card kpi-blue">
+    <div class="kpi-label">Full-Run Match Rate</div>
+    <div class="kpi-value">{{ e1.summary.match_rate }}%</div>
+    <div class="kpi-sub">{{ e1.summary.matched }}/{{ e1.summary.total_periods }} periods</div>
+  </div>
+  <div class="kpi-card kpi-red">
+    <div class="kpi-label">Total Mismatches</div>
+    <div class="kpi-value">{{ e1.summary.mismatches }}</div>
+    <div class="kpi-sub">Require investigation</div>
+  </div>
+  <div class="kpi-card kpi-amber">
+    <div class="kpi-label">Total Variance</div>
+    <div class="kpi-value">${{ "{:,.0f}".format(e1.summary.total_variance_usd) }}</div>
+    <div class="kpi-sub">Gross Sales USD</div>
+  </div>
+  <div class="kpi-card {% if e1.summary.risk_level=='LOW' %}kpi-green{% elif e1.summary.risk_level=='MEDIUM' %}kpi-amber{% else %}kpi-red{% endif %}">
+    <div class="kpi-label">Risk Level</div>
+    <div class="kpi-value">{{ e1.summary.risk_level }}</div>
+    <div class="kpi-sub">{{ e1.summary.missing_in_gl }} missing in GL</div>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="chart-row">
+  <div class="chart-card">
+    <h3>Monthly Revenue — Sales vs GL</h3>
+    <canvas id="monthlyChart"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3>Variance by Product Category</h3>
+    <canvas id="catChart"></canvas>
+  </div>
+</div>
+
+<!-- ── FILTER PANEL ── -->
+<div class="filter-bar">
+  <div class="filter-title">🔍 Filter Results — changes apply instantly</div>
+
+  <div class="filter-group">
+    <label>Year</label>
+    <select id="f-year">
+      <option value="">All Years</option>
+      {% for y in e1.years %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Month</label>
+    <select id="f-month">
+      <option value="">All Months</option>
+      {% for m in e1.months %}
+      <option value="{{ m }}">
+        {{ ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m|int] }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Product Category</label>
+    <select id="f-category">
+      <option value="">All Categories</option>
+      {% for c in e1.categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Status</label>
+    <select id="f-status">
+      <option value="">All Statuses</option>
+      {% for s in e1.statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-actions">
+    <button class="btn btn-reset btn-sm" onclick="resetFilters()">✕ Reset</button>
+    <div class="spinner" id="spinner"></div>
+  </div>
+</div>
+
+<!-- Live KPI strip (updates with filters) -->
+<div class="live-kpi-strip" id="liveKpis">
+  <div class="live-kpi"><div class="live-kpi-label">Filtered Rows</div><div class="live-kpi-value" id="lk-count">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Matched</div><div class="live-kpi-value good" id="lk-matched">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Mismatches</div><div class="live-kpi-value bad" id="lk-mismatch">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Match Rate</div><div class="live-kpi-value" id="lk-rate">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Total Variance $</div><div class="live-kpi-value warn" id="lk-var">—</div></div>
+</div>
+
+<div class="result-banner" id="resultBanner" style="display:none">
+  Showing <strong id="banner-count">0</strong> filtered records
+  <span id="active-filters"></span>
+</div>
+
+<!-- Results table (filled by JS) -->
+<div class="section-title">Reconciliation Results</div>
+<div class="card">
+  <div class="card-header">
+    <div>
+      <div class="card-title">Period-by-Period Comparison</div>
+      <div class="card-subtitle">Use filters above to narrow down. Max 200 rows shown.</div>
+    </div>
+    <a href="{{ url_for('download') }}" class="btn btn-outline btn-sm">⬇ Full Excel Report</a>
+  </div>
+  <div class="table-wrap">
+    <table class="recon-table">
+      <thead>
+        <tr><th>Year</th><th>Month</th><th>Category</th><th>Orders</th>
+          <th>SL Gross $</th><th>GL Gross $</th><th>Variance $</th><th>Var%</th><th>Status</th></tr>
+      </thead>
+      <tbody id="tableBody">
+        <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const MONTHS = ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const BADGE = {
+  MATCHED:"badge-green", WITHIN_TOLERANCE:"badge-blue",
+  MISMATCH:"badge-red",  MISSING_IN_GL:"badge-amber", MISSING_IN_SALES:"badge-amber"
+};
+
+function fmt(n) { return '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:0}); }
+
+async function applyFilters() {
+  document.getElementById('spinner').style.display = 'inline-block';
+  const p = new URLSearchParams({
+    year:     document.getElementById('f-year').value,
+    month:    document.getElementById('f-month').value,
+    category: document.getElementById('f-category').value,
+    status:   document.getElementById('f-status').value,
+  });
+  const data = await fetch('/api/filter/e1?' + p).then(r => r.json());
+  document.getElementById('spinner').style.display = 'none';
+
+  // Update live KPIs
+  document.getElementById('lk-count').textContent   = data.count;
+  document.getElementById('lk-matched').textContent  = data.matched;
+  document.getElementById('lk-mismatch').textContent = data.mismatches;
+  document.getElementById('lk-rate').textContent     = data.match_rate + '%';
+  document.getElementById('lk-var').textContent      = fmt(data.total_variance);
+
+  // Banner
+  const banner = document.getElementById('resultBanner');
+  banner.style.display = 'flex';
+  document.getElementById('banner-count').textContent = data.count;
+
+  // Table
+  const tbody = document.getElementById('tableBody');
+  if (!data.rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px">No results match your filters.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.rows.map(r => {
+    const varCls = r.variance_gross > 0 ? 'pos' : r.variance_gross < 0 ? 'neg' : '';
+    return `<tr>
+      <td>${r.year}</td><td>${MONTHS[r.month]||r.month}</td><td>${r.category}</td><td>${r.orders}</td>
+      <td>${fmt(r.sl_gross)}</td><td>${fmt(r.gl_gross)}</td>
+      <td class="${varCls}">${fmt(r.variance_gross)}</td>
+      <td class="${r.variance_pct>1?'neg':''}">${r.variance_pct}%</td>
+      <td><span class="badge ${BADGE[r.status]||'badge-blue'}">${r.status}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function resetFilters() {
+  ['f-year','f-month','f-category','f-status'].forEach(id => document.getElementById(id).value = '');
+  applyFilters();
+}
+
+// Auto-apply on every dropdown change
+['f-year','f-month','f-category','f-status'].forEach(id =>
+  document.getElementById(id).addEventListener('change', applyFilters)
+);
+
+// Charts
+const cm = {{ e1.chart_monthly | tojson }};
+new Chart(document.getElementById('monthlyChart'), {
+  type:'line', data:{ labels:cm.labels, datasets:[
+    {label:'Sales Ledger', data:cm.sl_values, borderColor:'#3b82f6', tension:0.3, fill:false},
+    {label:'General Ledger',data:cm.gl_values,borderColor:'#10b981', tension:0.3, borderDash:[5,3], fill:false}
+  ]},
+  options:{responsive:true,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:false},x:{ticks:{maxRotation:45,font:{size:10}}}}}
+});
+const cc = {{ e1.chart_cat | tojson }};
+new Chart(document.getElementById('catChart'), {
+  type:'bar', data:{ labels:cc.labels, datasets:[{label:'Variance $',data:cc.values,backgroundColor:['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6']}]},
+  options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}
+});
+
+// Load on page open
+applyFilters();
+</script>
+{% endblock %}

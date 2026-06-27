@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Engine 4 — Cost Anomaly Detection{% endblock %}
+{% block page_title %}Engine 4 — Cost Reconciliation & Anomaly Detection{% endblock %}
+
+{% block content %}
+<div class="kpi-grid" style="margin-bottom:20px">
+  <div class="kpi-card kpi-purple">
+    <div class="kpi-label">Flagged Periods</div>
+    <div class="kpi-value">{{ e4.summary.flagged }}</div>
+    <div class="kpi-sub">out of {{ e4.summary.total_periods }} total</div>
+  </div>
+  <div class="kpi-card kpi-red">
+    <div class="kpi-label">Margin Alerts</div>
+    <div class="kpi-value">{{ e4.summary.margin_alerts }}</div>
+    <div class="kpi-sub">below 15% profit margin</div>
+  </div>
+  <div class="kpi-card kpi-amber">
+    <div class="kpi-label">COGS Variance</div>
+    <div class="kpi-value">${{ "{:,.0f}".format(e4.summary.total_cogs_variance_usd) }}</div>
+    <div class="kpi-sub">SL vs GL difference</div>
+  </div>
+  <div class="kpi-card kpi-teal">
+    <div class="kpi-label">Logistics Variance</div>
+    <div class="kpi-value">${{ "{:,.0f}".format(e4.summary.total_logistics_variance_usd) }}</div>
+    <div class="kpi-sub">SL vs GL difference</div>
+  </div>
+</div>
+
+<div class="chart-row">
+  <div class="chart-card">
+    <h3>COGS — Sales Ledger vs GL by Category</h3>
+    <canvas id="costChart"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3>Profit Margin Trend (Monthly)</h3>
+    <canvas id="marginChart"></canvas>
+  </div>
+</div>
+
+<!-- Filter Panel -->
+<div class="filter-bar">
+  <div class="filter-title">🔍 Filter Results — combine any filters</div>
+
+  <div class="filter-group">
+    <label>Year</label>
+    <select id="f-year">
+      <option value="">All Years</option>
+      {% for y in e4.years %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Month</label>
+    <select id="f-month">
+      <option value="">All Months</option>
+      {% for m in e4.months %}
+      <option value="{{ m }}">{{ ["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][m|int] }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Category</label>
+    <select id="f-category">
+      <option value="">All Categories</option>
+      {% for c in e4.categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Flag Type</label>
+    <select id="f-flag">
+      <option value="">All Flags</option>
+      {% for f in e4.flag_types %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-actions">
+    <button class="btn btn-reset btn-sm" onclick="resetFilters()">✕ Reset</button>
+    <div class="spinner" id="spinner"></div>
+  </div>
+</div>
+
+<!-- What do these flags mean? (Educational box for non-finance users) -->
+<div class="card" style="background:#fffbeb;border-color:#fde68a;margin-bottom:16px">
+  <div class="card-title" style="margin-bottom:10px">💡 What do these flag types mean?</div>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;font-size:13px">
+    <div><strong>COGS_DRIFT</strong> — Cost of Goods Sold in your sales records differs from what was booked in the General Ledger by more than 5%. This means costs may have been recorded incorrectly.</div>
+    <div><strong>MARGIN_ALERT</strong> — Profit margin dropped below 15% in this period. Could mean prices are too low, costs too high, or discounts are eroding profits.</div>
+    <div><strong>LOGISTICS_SPIKE</strong> — Shipping and delivery costs jumped by more than $5,000 compared to GL in this period. Possible overcharging or missed accruals.</div>
+    <div><strong>MARKETING_OVERSPEND</strong> — Marketing spend exceeded 15% of gross revenue. The campaign may not be generating enough return.</div>
+  </div>
+</div>
+
+<div class="live-kpi-strip">
+  <div class="live-kpi"><div class="live-kpi-label">Rows</div><div class="live-kpi-value" id="lk-count">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Flagged</div><div class="live-kpi-value bad" id="lk-flagged">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Match Rate</div><div class="live-kpi-value good" id="lk-rate">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">COGS Variance</div><div class="live-kpi-value warn" id="lk-cogs">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Margin Alerts</div><div class="live-kpi-value bad" id="lk-margin">—</div></div>
+</div>
+
+<div class="section-title">Cost Records</div>
+<div class="card">
+  <div class="card-header">
+    <div>
+      <div class="card-title">All Periods — Sorted by Variance</div>
+      <div class="card-subtitle">Flagged rows appear first. NONE = no issues detected.</div>
+    </div>
+    <a href="{{ url_for('download') }}" class="btn btn-outline btn-sm">⬇ Export</a>
+  </div>
+  <div class="table-wrap">
+    <table class="recon-table">
+      <thead>
+        <tr><th>Year</th><th>Month</th><th>Category</th>
+          <th>COGS Var $</th><th>Logistics Var $</th><th>Mktg Var $</th>
+          <th>Profit Var $</th><th>Avg Margin%</th><th>Flags</th></tr>
+      </thead>
+      <tbody id="tableBody"><tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const MONTHS=["","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function fmt(n){return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});}
+
+async function applyFilters(){
+  document.getElementById('spinner').style.display='inline-block';
+  const p=new URLSearchParams({
+    year:document.getElementById('f-year').value,
+    month:document.getElementById('f-month').value,
+    category:document.getElementById('f-category').value,
+    flag_type:document.getElementById('f-flag').value,
+  });
+  const d=await fetch('/api/filter/e4?'+p).then(r=>r.json());
+  document.getElementById('spinner').style.display='none';
+
+  document.getElementById('lk-count').textContent  = d.count;
+  document.getElementById('lk-flagged').textContent = d.flagged;
+  document.getElementById('lk-rate').textContent   = d.match_rate+'%';
+  document.getElementById('lk-cogs').textContent   = fmt(d.total_cogs_variance);
+  document.getElementById('lk-margin').textContent = d.margin_alerts;
+
+  const tbody=document.getElementById('tableBody');
+  tbody.innerHTML=d.rows.length
+    ? d.rows.map(r=>{
+        const flags=r.flags&&r.flags!=='NONE'
+          ? r.flags.split(', ').map(f=>`<span class="badge badge-red" style="font-size:9px;margin:1px">${f}</span>`).join('')
+          : '<span style="color:var(--muted);font-size:12px">NONE</span>';
+        return `<tr>
+          <td>${r.year}</td><td>${MONTHS[r.month]||r.month}</td><td>${r.category}</td>
+          <td class="${r.cogs_variance>0?'neg':r.cogs_variance<0?'pos':''}">${fmt(r.cogs_variance)}</td>
+          <td class="${r.logistics_variance>0?'neg':r.logistics_variance<0?'pos':''}">${fmt(r.logistics_variance)}</td>
+          <td class="${r.marketing_variance>0?'neg':r.marketing_variance<0?'pos':''}">${fmt(r.marketing_variance)}</td>
+          <td class="${r.profit_variance<0?'neg':'pos'}">${fmt(r.profit_variance)}</td>
+          <td class="${r.avg_margin_pct<15?'neg':r.avg_margin_pct<25?'status-warning':'pos'}">${r.avg_margin_pct}%</td>
+          <td>${flags}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px">No results match your filters.</td></tr>';
+}
+
+function resetFilters(){
+  ['f-year','f-month','f-category','f-flag'].forEach(id=>document.getElementById(id).value='');
+  applyFilters();
+}
+['f-year','f-month','f-category','f-flag'].forEach(id=>document.getElementById(id).addEventListener('change',applyFilters));
+
+const cc={{ e4.chart_cost|tojson }};
+new Chart(document.getElementById('costChart'),{type:'bar',data:{labels:cc.labels,datasets:[
+  {label:'Sales Ledger COGS',data:cc.sl_cogs,backgroundColor:'rgba(139,92,246,0.5)',borderColor:'#8b5cf6',borderWidth:2},
+  {label:'GL COGS',data:cc.gl_cogs,backgroundColor:'rgba(20,184,166,0.5)',borderColor:'#14b8a6',borderWidth:2}
+]},options:{responsive:true,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true}}}});
+
+const mt={{ e4.chart_margin|tojson }};
+new Chart(document.getElementById('marginChart'),{type:'line',data:{labels:mt.labels,datasets:[{
+  label:'Avg Profit Margin %',data:mt.avg_margin,borderColor:'#8b5cf6',
+  backgroundColor:'rgba(139,92,246,0.08)',tension:0.3,fill:true
+}]},options:{responsive:true,plugins:{legend:{position:'bottom'}},
+  scales:{y:{min:10,max:40,ticks:{callback:v=>v+'%'}},x:{ticks:{maxRotation:45,font:{size:10}}}}}});
+
+applyFilters();
+</script>
+{% endblock %}

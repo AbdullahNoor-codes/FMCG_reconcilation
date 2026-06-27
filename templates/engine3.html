@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Engine 3 — Budget vs Actual{% endblock %}
+{% block page_title %}Engine 3 — Budget vs Actual (Regional){% endblock %}
+
+{% block content %}
+<div class="kpi-grid" style="margin-bottom:20px">
+  <div class="kpi-card kpi-amber">
+    <div class="kpi-label">Overall Attainment</div>
+    <div class="kpi-value">{{ e3.summary.overall_attainment_pct }}%</div>
+    <div class="kpi-sub">vs corporate targets</div>
+  </div>
+  <div class="kpi-card kpi-green">
+    <div class="kpi-label">On Target</div>
+    <div class="kpi-value">{{ e3.summary.on_target }}</div>
+    <div class="kpi-sub">regions hitting budget</div>
+  </div>
+  <div class="kpi-card kpi-red">
+    <div class="kpi-label">Critical Misses</div>
+    <div class="kpi-value">{{ e3.summary.critical_misses }}</div>
+    <div class="kpi-sub">below 75% attainment</div>
+  </div>
+  <div class="kpi-card kpi-blue">
+    <div class="kpi-label">Total Variance</div>
+    <div class="kpi-value">${{ "{:,.0f}".format(e3.summary.total_variance_usd) }}</div>
+    <div class="kpi-sub">Actual minus Budget</div>
+  </div>
+</div>
+
+<div class="chart-row">
+  <div class="chart-card">
+    <h3>Budget vs Actual by Region (Latest Year)</h3>
+    <canvas id="regionChart"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3>Year-over-Year Budget vs Actual</h3>
+    <canvas id="yearlyChart"></canvas>
+  </div>
+</div>
+<div class="chart-card" style="margin-bottom:20px">
+  <h3>Marketing ROI by Region (Revenue earned per $1 of marketing spend)</h3>
+  <canvas id="roiChart" style="max-height:160px"></canvas>
+</div>
+
+<!-- Filter Panel -->
+<div class="filter-bar">
+  <div class="filter-title">🔍 Filter Results</div>
+
+  <div class="filter-group">
+    <label>Year</label>
+    <select id="f-year">
+      <option value="">All Years</option>
+      {% for y in e3.years %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Region</label>
+    <select id="f-region">
+      <option value="">All Regions</option>
+      {% for r in e3.regions %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Performance</label>
+    <select id="f-performance">
+      <option value="">All</option>
+      {% for p in e3.performances %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-actions">
+    <button class="btn btn-reset btn-sm" onclick="resetFilters()">✕ Reset</button>
+    <div class="spinner" id="spinner"></div>
+  </div>
+</div>
+
+<div class="live-kpi-strip">
+  <div class="live-kpi"><div class="live-kpi-label">Rows</div><div class="live-kpi-value" id="lk-count">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Total Budget</div><div class="live-kpi-value" id="lk-budget">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Total Actual</div><div class="live-kpi-value good" id="lk-actual">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Variance $</div><div class="live-kpi-value warn" id="lk-var">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Attainment</div><div class="live-kpi-value" id="lk-att">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">On Target</div><div class="live-kpi-value good" id="lk-ont">—</div></div>
+</div>
+
+<div class="section-title">Regional Budget Performance</div>
+<div class="card">
+  <div class="table-wrap">
+    <table class="recon-table">
+      <thead>
+        <tr><th>Year</th><th>Region</th><th>Budget $</th><th>Actual $</th>
+          <th>Variance $</th><th>Var%</th><th>Attainment</th><th>Mktg ROI</th><th>Performance</th></tr>
+      </thead>
+      <tbody id="tableBody"><tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function fmt(n){return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});}
+const PERF_BADGE={EXCEEDED:'badge-green',NEAR_TARGET:'badge-blue',UNDERPERFORMING:'badge-amber',CRITICAL_MISS:'badge-red'};
+
+async function applyFilters(){
+  document.getElementById('spinner').style.display='inline-block';
+  const p=new URLSearchParams({
+    year:document.getElementById('f-year').value,
+    region:document.getElementById('f-region').value,
+    performance:document.getElementById('f-performance').value,
+  });
+  const d=await fetch('/api/filter/e3?'+p).then(r=>r.json());
+  document.getElementById('spinner').style.display='none';
+
+  document.getElementById('lk-count').textContent  = d.count;
+  document.getElementById('lk-budget').textContent = fmt(d.total_budget);
+  document.getElementById('lk-actual').textContent = fmt(d.total_actual);
+  document.getElementById('lk-var').textContent    = fmt(d.total_variance);
+  document.getElementById('lk-att').textContent    = d.attainment+'%';
+  document.getElementById('lk-ont').textContent    = d.on_target;
+
+  const tbody=document.getElementById('tableBody');
+  tbody.innerHTML=d.rows.length
+    ? d.rows.map(r=>{
+        const varCls=r.variance_usd>=0?'pos':'neg';
+        const attW=Math.min(r.attainment_pct,100);
+        const attCol=r.attainment_pct>=100?'#10b981':r.attainment_pct>=90?'#f59e0b':'#ef4444';
+        return `<tr>
+          <td>${r.year}</td><td>${r.region}</td>
+          <td>${fmt(r.budget_revenue)}</td><td>${fmt(r.actual_revenue)}</td>
+          <td class="${varCls}">${fmt(r.variance_usd)}</td>
+          <td class="${varCls}">${r.variance_pct}%</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="progress-wrap" style="width:70px"><div class="progress-bar" style="width:${attW}%;background:${attCol}"></div></div>
+              ${r.attainment_pct}%
+            </div>
+          </td>
+          <td>${r.marketing_roi}x</td>
+          <td><span class="badge ${PERF_BADGE[r.performance]||'badge-blue'}">${r.performance}</span></td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px">No results.</td></tr>';
+}
+
+function resetFilters(){
+  ['f-year','f-region','f-performance'].forEach(id=>document.getElementById(id).value='');
+  applyFilters();
+}
+['f-year','f-region','f-performance'].forEach(id=>document.getElementById(id).addEventListener('change',applyFilters));
+
+const rc={{ e3.chart_region|tojson }};
+new Chart(document.getElementById('regionChart'),{type:'bar',data:{labels:rc.labels,datasets:[
+  {label:'Budget',data:rc.budget,backgroundColor:'rgba(245,158,11,0.35)',borderColor:'#f59e0b',borderWidth:2},
+  {label:'Actual',data:rc.actual,backgroundColor:'rgba(16,185,129,0.6)',borderColor:'#10b981',borderWidth:2}
+]},options:{responsive:true,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true}}}});
+
+const yc={{ e3.chart_yearly|tojson }};
+new Chart(document.getElementById('yearlyChart'),{type:'line',data:{labels:yc.labels,datasets:[
+  {label:'Budget',data:yc.budget,borderColor:'#f59e0b',borderDash:[5,3],tension:0.3},
+  {label:'Actual',data:yc.actual,borderColor:'#10b981',tension:0.3,fill:false}
+]},options:{responsive:true,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:false}}}});
+
+const roi={{ e3.roi|tojson }};
+new Chart(document.getElementById('roiChart'),{type:'bar',data:{labels:roi.labels,datasets:[
+  {label:'ROI (Revenue per $1 spend)',data:roi.roi,backgroundColor:'rgba(99,102,241,0.6)',borderColor:'#6366f1',borderWidth:2}
+]},options:{responsive:true,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}}}});
+
+applyFilters();
+</script>
+{% endblock %}

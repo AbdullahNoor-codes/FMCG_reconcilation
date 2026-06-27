@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Home — FMCG ReconPro{% endblock %}
+{% block page_title %}Home{% endblock %}
+
+{% block content %}
+
+<div class="hero-section">
+    <div>
+        <h2>FMCG Auto-Reconciliation System</h2>
+        <p>4 independent reconciliation engines covering Revenue, Bank, Budget, and Cost analysis across 18,240 orders spanning 2023–2025. Click Run to process all engines simultaneously.</p>
+        <button type="submit" form="run-form" class="btn btn-success btn-lg">▶ Run Full Reconciliation</button>
+    </div>
+    <div style="text-align:right;color:rgba(255,255,255,0.5);font-size:12px;line-height:2">
+        <div>18,240 Sales Orders</div>
+        <div>180 GL Periods</div>
+        <div>1,095 Bank Entries</div>
+        <div>15 Budget Targets</div>
+        <div>5 Regions · 17 Countries</div>
+    </div>
+</div>
+
+<!-- File status -->
+<div class="section-title">Data Files</div>
+<div class="file-status-grid">
+    <div class="file-pill">
+        <div class="dot {% if file_status.sales %}ok{% else %}missing{% endif %}"></div>
+        <div>
+            <div style="font-weight:600">Sales Sub-Ledger</div>
+            <div style="color:var(--muted)">fmcg_sales_marketing_profitability_2023_2025.csv</div>
+        </div>
+    </div>
+    <div class="file-pill">
+        <div class="dot {% if file_status.gl %}ok{% else %}missing{% endif %}"></div>
+        <div>
+            <div style="font-weight:600">General Ledger</div>
+            <div style="color:var(--muted)">general_ledger_summary.csv</div>
+        </div>
+    </div>
+    <div class="file-pill">
+        <div class="dot {% if file_status.bank %}ok{% else %}missing{% endif %}"></div>
+        <div>
+            <div style="font-weight:600">Bank Statement</div>
+            <div style="color:var(--muted)">bank_statement.csv</div>
+        </div>
+    </div>
+    <div class="file-pill">
+        <div class="dot {% if file_status.budget %}ok{% else %}missing{% endif %}"></div>
+        <div>
+            <div style="font-weight:600">Budget Targets</div>
+            <div style="color:var(--muted)">regional_budget_targets.csv</div>
+        </div>
+    </div>
+</div>
+
+<!-- Engine overview -->
+<div class="section-title">Reconciliation Engines</div>
+<div class="engine-grid">
+    <div class="engine-card">
+        <div class="engine-card-header">
+            <div class="engine-num" style="background:#3b82f6">1</div>
+            <div>
+                <div class="engine-card-title">Revenue Reconciliation</div>
+                <div class="engine-card-sub">Sales Sub-Ledger vs General Ledger</div>
+            </div>
+        </div>
+        <p style="font-size:12px;color:var(--muted)">Compares order-level revenue aggregated by month and product category against the GL booked totals. Detects booking errors and missing journal entries.</p>
+    </div>
+    <div class="engine-card">
+        <div class="engine-card-header">
+            <div class="engine-num" style="background:#10b981">2</div>
+            <div>
+                <div class="engine-card-title">Bank Reconciliation</div>
+                <div class="engine-card-sub">Daily Sales vs Bank Deposits</div>
+            </div>
+        </div>
+        <p style="font-size:12px;color:var(--muted)">Matches daily expected net revenue against actual bank settlements. Flags missing deposits, timing differences, and excess bank credits.</p>
+    </div>
+    <div class="engine-card">
+        <div class="engine-card-header">
+            <div class="engine-num" style="background:#f59e0b">3</div>
+            <div>
+                <div class="engine-card-title">Budget vs Actual</div>
+                <div class="engine-card-sub">Regional Performance vs Targets</div>
+            </div>
+        </div>
+        <p style="font-size:12px;color:var(--muted)">Compares actual revenue by region and year against corporate budget targets. Calculates attainment %, variance, and marketing ROI per region.</p>
+    </div>
+    <div class="engine-card">
+        <div class="engine-card-header">
+            <div class="engine-num" style="background:#8b5cf6">4</div>
+            <div>
+                <div class="engine-card-title">Cost Reconciliation</div>
+                <div class="engine-card-sub">COGS + Logistics + Marketing Drift</div>
+            </div>
+        </div>
+        <p style="font-size:12px;color:var(--muted)">Cross-references cost lines (COGS, Logistics, Marketing) between Sales records and GL. Detects margin erosion, cost spikes, and anomalous spending.</p>
+    </div>
+</div>
+
+<!-- Recent runs -->
+{% if runs %}
+<div class="section-title">Recent Runs</div>
+<div class="card">
+    <div class="table-wrap">
+        <table class="recon-table">
+            <thead>
+                <tr>
+                    <th>#</th><th>Date</th>
+                    <th>Revenue Match%</th><th>Bank Match%</th>
+                    <th>Budget Attainment%</th><th>Cost Flags</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in runs %}
+                <tr>
+                    <td style="color:var(--muted)">{{ r.id }}</td>
+                    <td>{{ r.run_date }}</td>
+                    <td><span class="{% if r.e1_match_rate >= 90 %}status-matched{% else %}status-warning{% endif %}">{{ r.e1_match_rate }}%</span></td>
+                    <td><span class="{% if r.e2_match_rate >= 80 %}status-matched{% else %}status-warning{% endif %}">{{ r.e2_match_rate }}%</span></td>
+                    <td><span class="{% if r.e3_attainment >= 95 %}status-matched{% elif r.e3_attainment >= 80 %}status-warning{% else %}status-mismatch{% endif %}">{{ r.e3_attainment }}%</span></td>
+                    <td>{{ r.e4_flagged }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

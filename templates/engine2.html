@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Engine 2 — Bank Reconciliation{% endblock %}
+{% block page_title %}Engine 2 — Bank vs Daily Sales{% endblock %}
+
+{% block content %}
+<div class="kpi-grid" style="margin-bottom:20px">
+  <div class="kpi-card kpi-green">
+    <div class="kpi-label">Full-Run Match Rate</div>
+    <div class="kpi-value">{{ e2.summary.match_rate }}%</div>
+    <div class="kpi-sub">{{ e2.summary.matched }} days matched</div>
+  </div>
+  <div class="kpi-card kpi-red">
+    <div class="kpi-label">Missing from Bank</div>
+    <div class="kpi-value">${{ "{:,.0f}".format(e2.summary.missing_from_bank_usd) }}</div>
+    <div class="kpi-sub">{{ e2.summary.unmatched_sales }} unmatched days</div>
+  </div>
+  <div class="kpi-card kpi-amber">
+    <div class="kpi-label">Excess in Bank</div>
+    <div class="kpi-value">${{ "{:,.0f}".format(e2.summary.excess_in_bank_usd) }}</div>
+    <div class="kpi-sub">{{ e2.summary.unmatched_bank }} extra entries</div>
+  </div>
+  <div class="kpi-card kpi-blue">
+    <div class="kpi-label">Matched Variance</div>
+    <div class="kpi-value">${{ "{:,.0f}".format(e2.summary.total_variance_usd) }}</div>
+    <div class="kpi-sub">Across all matched pairs</div>
+  </div>
+</div>
+
+<div class="chart-row">
+  <div class="chart-card">
+    <h3>Monthly Expected vs Actual Cashflow</h3>
+    <canvas id="cfChart"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3>Daily Variance (first 60 days)</h3>
+    <canvas id="varChart"></canvas>
+  </div>
+</div>
+
+<!-- Filter Panel -->
+<div class="filter-bar">
+  <div class="filter-title">🔍 Filter Results</div>
+
+  <div class="filter-group">
+    <label>Year</label>
+    <select id="f-year">
+      <option value="">All Years</option>
+      {% for y in e2.years %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+    </select>
+  </div>
+
+  <div class="filter-group">
+    <label>Status</label>
+    <select id="f-status">
+      <option value="">All</option>
+      <option value="MATCHED">Matched only</option>
+      <option value="MISSING_IN_BANK">Missing in Bank only</option>
+    </select>
+  </div>
+
+  <div class="filter-actions">
+    <button class="btn btn-reset btn-sm" onclick="resetFilters()">✕ Reset</button>
+    <div class="spinner" id="spinner"></div>
+  </div>
+</div>
+
+<div class="live-kpi-strip" id="liveKpis">
+  <div class="live-kpi"><div class="live-kpi-label">Matched</div><div class="live-kpi-value good" id="lk-matched">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Missing</div><div class="live-kpi-value bad" id="lk-missing">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Match Rate</div><div class="live-kpi-value" id="lk-rate">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Variance $</div><div class="live-kpi-value warn" id="lk-var">—</div></div>
+  <div class="live-kpi"><div class="live-kpi-label">Missing $</div><div class="live-kpi-value bad" id="lk-musd">—</div></div>
+</div>
+
+<div class="section-title">Matched Transactions</div>
+<div class="card">
+  <div class="card-header">
+    <div class="card-title">Bank Settlements vs Expected Sales</div>
+  </div>
+  <div class="table-wrap">
+    <table class="recon-table">
+      <thead><tr><th>Sales Date</th><th>Bank Date</th><th>Expected $</th><th>Bank $</th><th>Variance $</th><th>Date Diff</th><th>Rule</th></tr></thead>
+      <tbody id="matchedBody"><tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section-title">Missing Bank Deposits</div>
+<div class="card">
+  <div class="card-header"><div class="card-title">Sales days with no bank settlement found</div></div>
+  <div class="table-wrap">
+    <table class="recon-table">
+      <thead><tr><th>Sales Date</th><th>Expected Amount $</th><th>Orders</th><th>Status</th></tr></thead>
+      <tbody id="missingBody"><tr><td colspan="4" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function fmt(n){ return '$'+Number(n).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}); }
+
+async function applyFilters(){
+  document.getElementById('spinner').style.display='inline-block';
+  const p=new URLSearchParams({year:document.getElementById('f-year').value, status:document.getElementById('f-status').value});
+  const d=await fetch('/api/filter/e2?'+p).then(r=>r.json());
+  document.getElementById('spinner').style.display='none';
+
+  document.getElementById('lk-matched').textContent = d.matched_count;
+  document.getElementById('lk-missing').textContent = d.missing_count;
+  document.getElementById('lk-rate').textContent    = d.match_rate+'%';
+  document.getElementById('lk-var').textContent     = fmt(d.total_variance);
+  document.getElementById('lk-musd').textContent    = fmt(d.missing_usd);
+
+  const mb = document.getElementById('matchedBody');
+  mb.innerHTML = d.matches.length
+    ? d.matches.map(r=>`<tr>
+        <td>${r.sales_date}</td><td>${r.bank_date}</td>
+        <td>${fmt(r.expected_amount)}</td><td>${fmt(r.bank_amount)}</td>
+        <td class="${r.variance>=0?'pos':'neg'}">${fmt(r.variance)}</td>
+        <td>${r.date_diff_days}d</td>
+        <td><span class="badge badge-blue" style="font-size:10px">${r.rule}</span></td>
+      </tr>`).join('')
+    : '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px">No matched records for this filter.</td></tr>';
+
+  const xb = document.getElementById('missingBody');
+  xb.innerHTML = d.unmatched_sales.length
+    ? d.unmatched_sales.map(r=>`<tr>
+        <td>${r.sales_date}</td>
+        <td class="neg">${fmt(r.expected_amount)}</td>
+        <td>${r.orders}</td>
+        <td><span class="badge badge-red">MISSING IN BANK</span></td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px">No missing deposits for this filter.</td></tr>';
+}
+
+function resetFilters(){
+  ['f-year','f-status'].forEach(id=>document.getElementById(id).value='');
+  applyFilters();
+}
+['f-year','f-status'].forEach(id=>document.getElementById(id).addEventListener('change',applyFilters));
+
+const cf={{ e2.chart_monthly|tojson }};
+new Chart(document.getElementById('cfChart'),{type:'line',data:{labels:cf.labels,datasets:[
+  {label:'Expected',data:cf.expected,borderColor:'#6366f1',tension:0.3,borderDash:[5,3]},
+  {label:'Actual',data:cf.actual,borderColor:'#10b981',tension:0.3}
+]},options:{responsive:true,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:false},x:{ticks:{maxRotation:45,font:{size:10}}}}}});
+
+const dv={{ e2.chart_daily|tojson }};
+new Chart(document.getElementById('varChart'),{type:'bar',data:{labels:dv.dates.slice(0,30),datasets:[{
+  label:'Variance $',data:dv.variances.slice(0,30),
+  backgroundColor:dv.variances.slice(0,30).map(v=>v>=0?'rgba(16,185,129,0.6)':'rgba(239,68,68,0.6)')
+}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:false},x:{ticks:{display:false}}}}});
+
+applyFilters();
+</script>
+{% endblock %}
